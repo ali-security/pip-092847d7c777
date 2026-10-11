@@ -91,6 +91,37 @@ def test_download_http_url__no_directory_traversal(
     mock_raise_for_status.assert_called_once_with(resp)
 
 
+@patch("pip._internal.network.download.raise_for_status")
+def test_download_http_url__no_directory_traversal_from_url_path(
+    mock_raise_for_status: Mock, tmpdir: Path
+) -> None:
+    """
+    Test that directory traversal doesn't happen on download when the URL
+    path holds a doubly percent-encoded "../", which only turns into a
+    traversal if the path is decoded more than once.
+    """
+    mock_url = "http://www.example.com/%252e%252e%252fevil.whl"
+    contents = b"downloaded"
+    link = Link(mock_url)
+
+    session = Mock()
+    session.resume_retries = 0
+    resp = MockResponse(contents)
+    resp.url = mock_url
+    resp.headers = {"content-type": "random"}
+    session.get.return_value = resp
+    download = Downloader(session, progress_bar="on")
+
+    download_dir = os.fspath(tmpdir.joinpath("download"))
+    os.mkdir(download_dir)
+    file_path, content_type = download(link, download_dir)
+    # The file should be downloaded to download_dir, under its literal name.
+    assert os.listdir(download_dir) == ["%2e%2e%2fevil.whl"]
+    assert os.path.dirname(file_path) == download_dir
+    assert not os.path.exists(os.fspath(tmpdir.joinpath("evil.whl")))
+    mock_raise_for_status.assert_called_once_with(resp)
+
+
 @pytest.fixture
 def clean_project(tmpdir_factory: pytest.TempPathFactory, data: TestData) -> Path:
     tmpdir = tmpdir_factory.mktemp("clean_project")
